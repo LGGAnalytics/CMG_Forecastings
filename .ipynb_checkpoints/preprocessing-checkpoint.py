@@ -1,3 +1,15 @@
+import sys, subprocess
+
+def pip_install(pkgs):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", *pkgs])
+
+# ensure runtime deps
+for pkg in ["pyathena", "openpyxl", "pyarrow"]:
+    try:
+        __import__(pkg.replace("-", "_"))
+    except ImportError:
+        pip_install([pkg])
+        
 import argparse
 import json
 import logging
@@ -13,13 +25,15 @@ from sagemaker.feature_store.feature_definition import FeatureDefinition, Featur
 
 # Your modules (ensure these are in the container/source_dir)
 from pooled_ridge import ForecastConfig, FeatureBuilder
-from runner_fm import sanitize_training_features, FEATURES  # adjust if module name differs
 
 from feature_store import *
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO)
+
+EXCLUDE = [364001,364002,364003,364004,364005,364006,364007,364008,364009,364010]
+FEATURES = ['total_net_sales_m1','adv_m1','CPI_m1','p13_sin','p13_cos','is_5w','Super Bowl']
 
 # ---------------------------
 # Arg parsing
@@ -189,7 +203,7 @@ def main():
         record_identifier_name=args.record_identifier_name,
         event_time_feature_name=args.event_time_feature_name,
         offline_store_s3_uri=args.offline_store_s3_uri,
-        role_arn=args.role-arn if hasattr(args, "role-arn") else args.role_arn,
+        role_arn=args.role_arn,
         enable_online_store=args.enable_online_store,
     )
 

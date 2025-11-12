@@ -39,7 +39,7 @@ events_s3 = ParameterString(
 
 offline_store_s3 = ParameterString(
     name="OfflineStoreS3Uri",
-    default_value="s3://data-science-lgg/offline_store//heatmap/",
+    default_value="s3://data-science-lgg/offline_store/heatmap/",
 )
 
 training_features_s3 = ParameterString(
@@ -81,12 +81,12 @@ step_args = processor.run(
         ),
         ProcessingInput(
             source=cpi_s3,
-            destination="/opt/ml/processing/calendar",
+            destination="/opt/ml/processing/cpi",
             input_name="cpi",
         ),
         ProcessingInput(
             source=events_s3,
-            destination="/opt/ml/processing/calendar",
+            destination="/opt/ml/processing/events",
             input_name="events",
         ),
     ],
@@ -103,6 +103,8 @@ step_args = processor.run(
         "--athena-work-group", "primary",
         "--athena-staging-dir", athena_staging,
         "--calendar-path", "/opt/ml/processing/calendar",
+        "--cpi-path", "/opt/ml/processing/cpi",
+        "--events-path", "/opt/ml/processing/events",
         "--feature-group-name", feature_group_name,
         "--offline-store-s3-uri", offline_store_s3,
         "--role-arn", role,
@@ -123,6 +125,8 @@ pipeline = Pipeline(
     parameters=[
         athena_staging,
         calendar_s3,
+        cpi_s3,
+        events_s3,
         offline_store_s3,
         training_features_s3,
         feature_group_name,

@@ -12,6 +12,10 @@ from sagemaker.feature_store.feature_definition import FeatureDefinition, Featur
 
 from pooled_ridge import ForecastConfig, FeatureBuilder  # from your repo
 
+import sys, os, importlib, pandas as pd, numpy as np
+import forecasting.pooled_ridge as pr
+from forecasting.pooled_ridge import ForecastConfig, FeatureBuilder, PooledRidgeForecaster
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO)
@@ -87,3 +91,52 @@ def get_or_create_feature_group(
     fg.wait_for_create()
     logger.info("Feature Group '%s' created.", feature_group_name)
     return fg
+
+
+
+# ========= Helpers =========
+def std_fiscal_cols(cal: pd.DataFrame) -> pd.DataFrame:
+    c = cal.copy()
+    lower = {col.lower(): col for col in c.columns}
+    fy = lower.get('fiscal_year') or lower.get('year') or lower.get('fy') or lower.get('fiscalyear')
+    fp = lower.get('fiscal_period') or lower.get('period') or lower.get('fp') or lower.get('fiscalperiod')
+    if fy is None or fp is None:
+        raise ValueError("Calendar must include fiscal year/period columns.")
+    if fy != 'fiscal_year' or fp != 'fiscal_period':
+        c = c.rename(columns={fy: 'fiscal_year', fp: 'fiscal_period'})
+    for col in ['BeginningDate','EndingDate']:
+        if col in c.columns:
+            c[col] = pd.to_datetime(c[col], errors='coerce').dt.normalize()
+    return c
+
+def build_events_df_fiscal(events_path: str, cal2: pd.DataFrame) -> pd.DataFrame:
+    ev = pd.read_excel(events_path)
+    ev['event_date'] = pd.to_datetime(ev['event_date'], errors='coerce').dt.normalize()
+    sb_col = None
+    for c in ev.columns:
+        k = c.strip().lower().replace(' ','')
+        if k in ('superbowl','super_bowl'):
+            sb_col = c; break
+    if sb_col is None:
+        raise ValueError("No 'Super Bowl' column in events file.")
+    ev = ev[['event_date', sb_col]].rename(columns={sb_col: 'Super Bowl'})
+    ev['Super Bowl'] = pd.to_numeric(ev['Super Bowl'], errors='coerce').fillna(0).astype(int).clip(0,1)
+
+    span = cal2[['BeginningDate','EndingDate','fiscal_year','fiscal_period']].dropna().copy()
+    span['key'] = 1; ev['key'] = 1
+    m = (ev.merge(span, on='key', how='inner')
+            .query('BeginningDate <= event_date <= EndingDate'))
+    events_df = (m[['fiscal_year','fiscal_period','BeginningDate','Super Bowl']]
+                 .drop_duplicates(['fiscal_year','fiscal_period'])
+                 .rename(columns={'BeginningDate':'event_date'}))
+    return events_df[['event_date','fiscal_year','fiscal_period','Super Bowl']].drop_duplicates()
+
+def sanitize_training_features(df: pd.DataFrame, feature_cols: list, target_col: str) -> pd.DataFrame:
+    out = df.copy()
+    out['store_number'] = out['store_number'].astype(str).str.strip()
+    for c in feature_cols:
+        out[c] = pd.to_numeric(out[c], errors='coerce')
+    out[feature_cols] = out[feature_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    out[target_col] = pd.to_numeric(out[target_col], errors='coerce')
+    out = out.dropna(subset=[target_col])
+    return out
